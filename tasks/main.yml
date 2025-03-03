@@ -1,0 +1,62 @@
+---
+- name: Wipe existing conda environment
+  ansible.builtin.file:
+    path: "{{ anemoi_env_path }}"
+    state: absent
+  when: anemoi_env_wipe
+
+- name: Copy conda environment description
+  ansible.builtin.copy:
+    src: "env.yml"
+    dest: /tmp/{{ anemoi_env_name }}.yml
+    mode: "644"
+  register: anemoi_env_updated
+
+- name: Create conda environment
+  become_user: "{{ conda_user | default(root)}}"
+  ansible.builtin.shell: |
+    source /etc/profile.d/conda.sh
+    source /etc/profile.d/mamba.sh
+    export PIP_NO_CACHE_DIR=false
+    mamba env create -f /tmp/{{ anemoi_env_name }}.yml -p {{ anemoi_env_path }} && mamba clean --all -y
+  args:
+    executable: /bin/bash
+    creates: "{{ anemoi_env_path }}"
+
+  register: anemoi_env_create
+
+- name: Update conda environment
+  become_user: "{{ conda_user | default(root)}}"
+  ansible.builtin.shell: |
+    source /etc/profile.d/conda.sh
+    source /etc/profile.d/mamba.sh
+    export PIP_NO_CACHE_DIR=false
+    mamba env update --prune -f /tmp/{{ anemoi_env_name }}.yml -p {{ anemoi_env_path }} && mamba clean --all -y
+  args:
+    executable: /bin/bash
+  when: not anemoi_env_create.changed and anemoi_env_updated.changed
+
+- name: Look for GPU in /proc
+  stat:
+    path: /proc/driver/nvidia/version
+  register: gpu_proc_check
+
+- name: Install flash_attn
+  become_user: "{{ conda_user | default(root)}}"
+  ansible.builtin.pip:
+    name: flash_attn
+    executable: "{{ anemoi_env_path }}/bin/pip3"
+    extra_args: --no-build-isolation --no-cache-dir
+  environment:
+    PATH: "{{ anemoi_env_path }}/bin/:{{ ansible_env.PATH }}"
+  when: gpu_proc_check.stat.exists
+
+- name: Make ipykernel available for Jupyter
+  ansible.builtin.shell: |
+    source /etc/profile.d/conda.sh
+    source /etc/profile.d/mamba.sh
+    mamba run -p {{ anemoi_env_path }} python3 -m ipykernel install --prefix=/usr/local --name="{{ anemoi_env_name }}" --display-name="{{ anemoi_env_name }}" --env PATH "{{ anemoi_env_path }}/bin:\$PATH"
+  args:
+    executable: /bin/bash
+    creates: /usr/local/share/jupyter/kernels/{{ anemoi_env_name }}
+  when: anemoi_create_ipykernel

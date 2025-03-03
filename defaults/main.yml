@@ -1,0 +1,6 @@
+---
+anemoi_env_wipe: no
+anemoi_env_name: anemoi
+anemoi_env_path: "{{ conda_prefix }}/envs/{{ anemoi_env_name }}"
+anemoi_checkpoint: https://huggingface.co/ecmwf/aifs-single-1.0/resolve/main/anemoi-1.0.ckpt
+anemoi_create_ipykernel: yes
